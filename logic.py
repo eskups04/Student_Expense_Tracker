@@ -1,0 +1,168 @@
+from database import get_expenses_by_month, get_budget
+
+WARNING_THRESHOLD = 0.80
+EXCEEDED_THRESHOLD = 1.00
+
+def compute_totals_by_category(month):
+    """
+    Sums expenses for a given month, grouped by category.
+    Returns a dict: e.g. {"Food": 450.0, "Transportation": 75.0}
+    """
+    rows = get_expenses_by_month(month)
+
+    totals = {}
+
+    for row in rows:
+        category = row["category"]
+        amount = row["amount"]
+
+        if category in totals:
+            totals[category] += amount
+        else:
+            totals[category] = amount
+
+    return totals
+
+def compute_totals_recursive(values):
+    """
+    Recursively sums a list of expense amounts.
+    Base case: empty list returns 0.0
+    """
+    if not values:
+        return 0.0
+    return values[0] + compute_totals_recursive(values[1:])
+
+def compute_monthly_total(month):
+    """
+    Returns the total amount spent in a given month.
+    Uses compute_totals_recursive to satisfy the recursive requirement.
+    """
+    totals = compute_totals_by_category(month)
+    amounts = list(totals.values())
+    return compute_totals_recursive(amounts)
+
+def check_budget_warning(month):
+    """
+    Checks total spending against the budget for a given month.
+
+    Returns a dict with:
+        status     : "ok", "warning", "exceeded", or "no_budget"
+        spent      : total amount spent
+        budget     : the monthly budget
+        percentage : spent / budget as a float (e.g. 0.85 = 85%)
+        message    : a human-readable string
+    """
+    budget = get_budget(month)
+    spent = compute_monthly_total(month)
+
+    if budget == 0:
+        return {
+            "status": "no_budget",
+            "spent": spent,
+            "budget": 0,
+            "percentage": 0,
+            "message": "No budget set for this month."
+        }
+
+    percentage = spent / budget
+
+    if percentage > EXCEEDED_THRESHOLD:
+        status = "exceeded"
+        message = (
+            f"ALERT: You have exceeded your budget!\n"
+            f"Spent ₱{spent:.2f} of ₱{budget:.2f} ({percentage * 100:.1f}%)"
+        )
+    elif percentage >= WARNING_THRESHOLD:
+        status = "warning"
+        message = (
+            f"WARNING: You are at {percentage * 100:.1f}% of your budget.\n"
+            f"Spent ₱{spent:.2f} of ₱{budget:.2f}"
+        )
+    else:
+        status = "ok"
+        message = (
+            f"Budget OK: ₱{spent:.2f} spent of ₱{budget:.2f} "
+            f"({percentage * 100:.1f}%)"
+        )
+
+    return {
+        "status": status,
+        "spent": spent,
+        "budget": budget,
+        "percentage": percentage,
+        "message": message
+    }
+
+def save_to_file(month, filename=None):
+    """
+    Exports all expenses for a given month to a .txt file.
+    
+    Parameters:
+        month    (str): format YYYY-MM
+        filename (str): optional custom filename, defaults to summary_YYYY-MM.txt
+    """
+    from database import get_budget
+
+    if filename is None:
+        filename = f"summary_{month}.txt"
+
+    rows   = get_expenses_by_month(month)
+    totals = compute_totals_by_category(month)
+    spent  = compute_monthly_total(month)
+    budget = get_budget(month)
+
+    if not rows:
+        print(f"No expenses found for {month}. File not saved.")
+        return False
+
+    with open(filename, "w", encoding="utf-8") as f:
+
+        # Header
+        f.write("=" * 48 + "\n")
+        f.write("     STUDENT EXPENSE TRACKING SYSTEM\n")
+        f.write(f"     Monthly Summary — {month}\n")
+        f.write("=" * 48 + "\n\n")
+
+        # Budget status
+        if budget > 0:
+            percentage = spent / budget * 100
+            f.write(f"Monthly Budget  : P{budget:,.2f}\n")
+            f.write(f"Total Spent     : P{spent:,.2f}\n")
+            f.write(f"Budget Used     : {percentage:.1f}%\n")
+
+            if percentage > 100:
+                f.write("Status          : EXCEEDED\n")
+            elif percentage >= 80:
+                f.write("Status          : WARNING\n")
+            else:
+                f.write("Status          : OK\n")
+        else:
+            f.write(f"Total Spent     : P{spent:,.2f}\n")
+            f.write("Status          : No budget set\n")
+
+        f.write("\n")
+
+        # Category breakdown
+        f.write("-" * 48 + "\n")
+        f.write("BREAKDOWN BY CATEGORY\n")
+        f.write("-" * 48 + "\n")
+        for category, total in totals.items():
+            f.write(f"  {category:<20} P{total:>10,.2f}\n")
+
+        f.write("-" * 48 + "\n")
+        f.write(f"  {'TOTAL':<20} P{spent:>10,.2f}\n\n")
+
+        # Individual entries
+        f.write("-" * 48 + "\n")
+        f.write("ALL EXPENSE ENTRIES\n")
+        f.write("-" * 48 + "\n")
+        for row in rows:
+            desc = row["description"] or "—"
+            f.write(f"  [{row['id']}] {row['date']}  |  {row['category']:<15}  |  P{row['amount']:>8,.2f}  |  {desc}\n")
+
+        f.write("\n" + "=" * 48 + "\n")
+        f.write(f"  Generated by Student Expense Tracker\n")
+        f.write("=" * 48 + "\n")
+
+    print(f"Summary saved to {filename}")
+    return True
