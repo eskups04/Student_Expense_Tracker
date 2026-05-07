@@ -1,4 +1,4 @@
-from ui.app import ExpenseTrackerApp
+from app import ExpenseTrackerApp
 import tkinter as tk
 
 if __name__ == "__main__":
